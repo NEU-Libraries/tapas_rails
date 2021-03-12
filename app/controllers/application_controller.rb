@@ -1,18 +1,17 @@
 class ApplicationController < ActionController::Base
+
+
   helper Openseadragon::OpenseadragonHelper
 
-  def forem_user
-    current_user
-  end
-  helper_method :forem_user
+  # def forem_user
+  #   current_user
+  # end
+  # helper_method :forem_user
 
   # Adds a few additional behaviors into the application controller
 
-  include Blacklight::Controller
+  # include Blacklight::Controller
   layout 'blacklight'
-
-  # Please be sure to impelement current_user and user_session. Blacklight depends on
-  # these methods in order to perform user specific actions.
 
   # Prevent CSRF attacks by raising an exception.
   # For APIs, you may want to use :null_session instead.
@@ -50,27 +49,8 @@ class ApplicationController < ActionController::Base
     @response ||= {}
   end
 
-  helper_method :current_user_can?
-
-  def current_user_can?(perm_level, record)
-    if record.respond_to? :project
-      if record.project
-        parent = record.project
-      end
-    end
-    if current_user
-      current_user.can? perm_level, record
-    elsif current_user && parent
-      current_user.can? perm_level, parent
-    elsif perm_level != :read
-      false
-    else
-      record.read_groups.include? 'public'
-    end
-  end
-
   def render_404(exception, path="")
     logger.error("Rendering 404 page for #{path if path != ""} due to exception: #{exception.inspect} - #{exception.backtrace if exception.respond_to? :backtrace}")
-    render 'public/404', :status => 404
+    render file: 'public/404', :status => 404
   end
 end

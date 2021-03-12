@@ -1,47 +1,44 @@
 require 'spec_helper'
+require 'cancan/matchers'
 
 describe Community do
-  include FileHelpers
-  before(:each) { ActiveFedora::Base.delete_all }
-  after(:each) { ActiveFedora::Base.delete_all }
-
-  it "can create the root community when it doesn't exist" do
-    expect{ Community.root_community }.to change{ Community.count }.from(0).to(1)
-    expect(Community.root_community.pid).to eq Rails.configuration.tap_root
+  let(:institution) { FactoryBot.create(:institution) }
+  let(:user) { FactoryBot.create(:user, institution: institution) }
+  let(:community) do
+    FactoryBot.create(:community,
+                      depositor: user,
+                      users: [user],
+                      institutions: [institution])
   end
 
-  it "can look up the root community when it already exists" do
-    Community.root_community
-    expect{ Community.root_community }.not_to change{ Community.count }.from(1)
-    expect(Community.root_community.pid).to eq Rails.configuration.tap_root
+  it 'has many Users as members' do
+    expect(community.users.count).to equal(1)
   end
 
-  describe '#as_json' do
-    after(:each) { ActiveFedora::Base.delete_all }
+  it 'has a depositor' do
+    expect(community.depositor).to be(user)
+  end
 
-    it 'returns a valueless hash for empty Communities' do
-      result = Community.new.as_json
-      keys = %i(members depositor access thumbnail title description)
-      expect(keys.all? { |k| result.has_key?(k) }).to be true
-      expect(result.all? { |k, v| v.blank? }).to be true
+  describe '.create' do
+    it 'sets the depositor as an admin' do
+      c = Community.create!(title: 'Title', depositor: user, institutions: [institution])
+
+      expect(c.reload.project_admins).to include(user)
+    end
+  end
+
+  describe '#can_read?' do
+    subject(:ability) { Ability.new(user) }
+
+    context 'when user is a member' do
+      it { is_expected.to be_able_to(:read, community) }
     end
 
-    it 'populates values appropriately where they exist' do
-      community = FactoryGirl.create :community
-      community.mods.title = 'A Test Community'
-      community.mods.abstract = 'Community created for testing #as_json'
-      community.drupal_access = 'public'
-      community.depositor = 'Will Jackson'
-      community.add_thumbnail(:filepath => fixture_file('image.jpg'))
-      community.project_members = %w(Peter Paul Mary)
+    context 'when user is non-member' do
+      let(:user) { FactoryBot.create(:user) }
+      let(:private) { FactoryBot.create(:community, is_public: false) }
 
-      result = community.as_json
-      expect(result[:title]).to eq 'A Test Community'
-      expect(result[:description]).to eq 'Community created for testing #as_json'
-      expect(result[:access]).to eq 'public'
-      expect(result[:depositor]).to eq 'Will Jackson'
-      expect(result[:thumbnail]).to eq 'image.jpg'
-      expect(result[:members]).to eq %w(Peter Paul Mary)
+      it { is_expected.not_to be_able_to(:read, private) }
     end
   end
 

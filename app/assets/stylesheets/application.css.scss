@@ -8,8 +8,6 @@
  * You're free to add application-wide styles to this file and they'll appear at the top of the
  * compiled file, but it's generally better to create a new file per style scope.
  *
- *= require_self
-
  */
 
  @import 'tapas-variables';
@@ -20,24 +18,18 @@
 
  @import 'bootstrap';
 
- @import 'bootsy';
+// @import 'core_files';
 
- @import 'blacklight/blacklight';
+// @import 'communities';
 
- @import 'blacklight_gallery';
+// @import 'jquery-ui';
 
- @import 'core_files';
+// @import 'jquery-ui/resizable';
 
- @import 'communities';
-
- @import 'jquery-ui';
-
- @import 'jquery-ui/resizable';
-
- @import 'forem/base';
+// @import 'forem/base';
 
  @import 'tapas-general';
 
- @import 'nestable';
+// @import 'nestable';
 
  //= require_tree .

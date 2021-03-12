@@ -86,7 +86,43 @@ To run the job that reruns all of the core_files through the reading interface b
 
   bundle exec cap production resque:restart
 
-
-
 To modify the main menu
-  - open the menu.en.yml file and modify/reorder/add/delete values where necessary 
+  - open the menu.en.yml file and modify/reorder/add/delete values where necessary
+
+
+## Development
+
+To get started developing TAPAS, first install the required software:
+
+- Ruby 2.6.3
+- Rails 5.2
+- MySQL 5.x
+
+Then follow these steps:
+
+0. Clone this repository and cd to the repository directory
+1. Create a mysql database and import the TAPAS sql file
+2. Configure application.yml file with correct parameters
+4. cd to project directory && `bundle install`
+5. Run `rails s` to start the application
+
+To get TEI files to render properly, you'll need to use something like [`xslt3`](https://www.npmjs.com/package/xslt3)
+to compile them to a SEF JSON representation that can be used by the in-browser XSLT processor.
+(See [app/views/core_files/_reading_interface.html.erb](app/views/core_files/_reading_interface.html.erb).)
+
+#### Notes for OSX
+
+ - installing nokogiri on OSX: `$ gem install nokogiri -- --with-xml2-include=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/libxml2 --use-system-libraries`
+ - configuring bundle install with correct openssl from brew:
+ ```
+ $ bundle config --global build.mysql2 --with-opt-dir="$(brew --prefix openssl)"
+ $ bundle install
+ ```
+ - if running with MAMP: `gem install mysql2 -- --with-mysql-config=/Applications/MAMP/Library/bin/mysql_config`
+
+
+ - install libv8 on OSX with the following:
+  `$ brew install v8@3.15`
+  `$ bundle config build.libv8 --with-system-v8`
+  `$ bundle config build.therubyracer --with-v8-dir=$(brew --prefix v8@3.15)`
+  `$ bundle install`

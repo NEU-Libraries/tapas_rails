@@ -1,141 +1,138 @@
-class CommunitiesController < CatalogController
+class CommunitiesController < ApplicationController
   include ApiAccessible
-  include ControllerHelper
 
-  self.copy_blacklight_config_from(CatalogController)
+  before_action :authorize_destroy!, only: :destroy
+  before_action :authorize_edit!, only: %i[edit update]
+  before_action :authorize_read!, only: :show
 
-  before_filter :can_edit?, only: [:edit, :update, :destroy]
-  before_filter :can_read?, :only => :show
-  # before_filter :enforce_show_permissions, :only=>:index
-
-  # self.search_params_logic += [:add_access_controls_to_solr_params]
-
-  def upsert
-    if params[:thumbnail]
-      params[:thumbnail] = create_temp_file(params[:thumbnail])
-    end
-
-    TapasRails::Application::Queue.push TapasObjectUpsertJob.new params
-    @response[:message] = "Community upsert in progress"
-    pretty_json(202) and return
-  end
-
-  #This method displays all the communities/projects created in the database
   def index
     @page_title = "All Projects"
-    self.search_params_logic += [:communities_filter]
-    self.search_params_logic += [:add_access_controls_to_solr_params]
-    logger.debug repository.inspect
-    logger.debug repository.connection
-    logger.debug Blacklight.solr_config[:url]
-    (@response, @document_list) = search_results(params, search_params_logic)
+
+    @search = CommunitySearch.new(params)
+    @results = @search.result
+
     respond_to do |format|
-      format.html { render :template => 'shared/index' }
-      format.js { render :template => 'shared/index', :layout => false }
+      format.html { render template: 'shared/index' }
+      format.js { render template: 'shared/index', layout: false }
     end
   end
 
-  #This method is the helper method for index. It basically gets the communities
-  # using solr queries
-  def communities_filter(solr_parameters, user_parameters)
-    model_type = RSolr.solr_escape "info:fedora/afmodel:Community"
-    query = "has_model_ssim:\"#{model_type}\""
-    solr_parameters[:fq] ||= []
-    solr_parameters[:fq] << query
-  end
-
-  #This method is used to display various attributes of community
   def show
-    # authorize! :show, params[:id]
     @community = Community.find(params[:id])
-    @page_title = @community.title || ""
-    @rec_count = 0
-    if @community.children
-      @community.children.each do |cc|
-        @rec_count = @rec_count + cc.children.count
-      end
-    end
+    @page_title = @community.title || ''
+    @collections = @community.collections
   end
 
-  #This method is used to create a new community/project
+  def format_users_for_form
+    User.pluck(:name, :email, :id).map { |u| ["#{u[0]} (#{u[1]})", u[2]] }
+  end
+
   def new
     if current_user && (current_user.paid_user? || current_user.admin?)
       @page_title = "Create New Community"
-      @community = Community.new(:mass_permissions=>"public")
-      i_s = Institution.all()
-      @institutions = []
-      i_s.each do |i|
-        @institutions << [i.name, i.id]
-      end
-      u_s = User.all()
-      @users = []
-      u_s.each do |u|
-        @users << ["#{u.name} (#{u.email})", u.id]
-      end
+      @community = Community.new
+      @institutions = Institution.pluck(:name, :id)
+      @users = format_users_for_form
     else
       flash[:notice] = "In order to create a project, you must be a member of the TEI. <a href="">Join now!</a>"
       redirect_to root_path
     end
   end
 
-  #This method contains the actual logic for creating a new community
+  # TODO: Projects have many collections; each collection belongs to one project
+  # TODO: CoreFiles can belong to many collections (many-to-many), but will always point back to one project
+
   def create
-    @community = Community.new(params[:community])
-    @community.did = @community.pid
-    @community.depositor = current_user.id.to_s
-    if (params[:thumbnail])
-      params[:thumbnail] = create_temp_file(params[:thumbnail])
-      @community.add_thumbnail(:filepath => params[:thumbnail])
-    end
-    if params[:mass_permissions]
-      @community.mass_permissions = params[:mass_permissions]
-    end
-    @community.save!
-    redirect_to @community and return
+    authorize! :create, Community.new
+
+    @community = Community.create!(community_params.merge({ depositor_id: current_user.id }))
+
+    add_institutions
+    add_members
+
+    redirect_to @community
   end
 
-  #This method is used to edit a particular community
   def edit
     @community = Community.find(params[:id])
     @page_title = "Edit #{@community.title || ''}"
-    i_s = Institution.all()
-    @institutions = []
-    i_s.each do |i|
-      @institutions << [i.name, i.id]
-    end
-    u_s = User.all()
-    @users = []
-    u_s.each do |u|
-      @users << ["#{u.name} (#{u.email})", u.id]
-    end
+    @institutions = Institution.pluck(:name, :id)
+    @users = format_users_for_form
   end
 
-  #This method contains the actual logic for editing a particular community
   def update
     @community = Community.find(params[:id])
-    puts @community
-    if params[:community][:remove_thumbnail] == "1"
-      params[:community].delete :thumbnail
-      @community.thumbnail_list = []
-      @community.save!
-    end
-    params[:community].delete :remove_thumbnail
-    @community.update_attributes(params[:community])
-    if params[:mass_permissions]
-      @community.mass_permissions = params[:mass_permissions]
-    end
-    if params[:thumbnail]
-      params[:thumbnail] = create_temp_file(params[:thumbnail])
-      @community.add_thumbnail(:filepath => params[:thumbnail])
-    end
+    @community.community_members.destroy_all
+    @community.institutions.destroy_all
+    @community.update(community_params)
 
-    @community.save!
-    redirect_to @community and return
+    add_institutions
+    add_members
+
+    @community.thumbnail.purge_later if params[:community][:remove_thumbnail].present?
+
+    redirect_to @community
+  end
+
+  def add_institutions
+    child_params[:institutions].reject(&:empty?).map { |iid| CommunitiesInstitution.create!(community_id: @community.id, institution_id: iid) }
+  end
+
+  def add_members
+    child_params[:project_members].reject(&:empty?).map { |uid| CommunityMember.create!(community_id: @community.id, user_id: uid, member_type: 'member') }
+    child_params[:project_editors].reject(&:empty?).map { |uid| CommunityMember.create!(community_id: @community.id, user_id: uid, member_type: 'editor') }
+    child_params[:project_admins].reject(&:empty?).map { |uid| CommunityMember.create!(community_id: @community.id, user_id: uid, member_type: 'admin') }
   end
 
   def destroy
-    @community = Community.find(params[:id])
-    @page_title = "Delete #{@community.title || ''}"
-    @community.destroy
- end
+    community = Community.find(params[:id])
+    community.discard
+
+    redirect_to my_tapas_path
+  end
+
+  protected
+
+  def authorize_destroy!
+    authorize! :destroy, Community.find(params[:id])
+  end
+
+  def authorize_edit!
+    authorize! :update, Community.find(params[:id])
+  end
+
+  def authorize_read!
+    authorize! :read, Community.find(params[:id])
+  end
+
+  def can_edit?
+    community = Community.find(params[:id])
+    can? :update, community
+  end
+
+  def can_read?
+    community = Community.find(params[:id])
+    can? :read, community
+  end
+
+  private
+
+  def community_params
+    params
+      .require(:community)
+      .permit(
+        :description,
+        :thumbnail,
+        :title
+      )
+  end
+
+  def child_params
+    params.require(:community).permit(
+      institutions: [],
+      project_admins: [],
+      project_editors: [],
+      project_members: []
+    )
+  end
 end

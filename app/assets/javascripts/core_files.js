@@ -1,167 +1,134 @@
-(function($) {
-  $(document).ready(function() {
-    var editor;
+const LOADING_SPINNER = document.getElementById('reading-interface-loading-spinner')
 
-    $(".reading").each(function(){
-      if (!$(this).find("#reader_css_1").length){
-        $(this).prepend("<link rel='stylesheet' type='text/css' id='reader_css_1' href=''></link><link rel='stylesheet' type='text/css' id='reader_css_2' href=''></link><link rel='stylesheet' type='text/css' id='reader_css_3' href=''></link>");
-      }
-      var style = $(this).parents(".node").find("select[name='reading_selector']").val();
-      console.log(style);
-      var pane = $(this);
-      show_style(pane, style);
-    });
+function hideLoadingSpinner() {
+  if (!LOADING_SPINNER) return;
 
-    // $("select[name='reading_selector']").on("change", function(e){
-    //   e.preventDefault();
-    //   var style = $(this).val()
-    //   console.log(style);
-    //   var pane = $(this).parents(".node").find(".reading");
-    //   show_style(pane, style);
-    // });
+  LOADING_SPINNER.classList.add('hidden')
+}
 
-    make_clickable($("body"));
+function showLoadingSpinner() {
+  if (!LOADING_SPINNER) return;
+  LOADING_SPINNER.classList.remove('hidden')
+}
 
-    function make_clickable(body){
-      body.find(" select[name='reading_selector']").on("change", function(e){
-        e.preventDefault();
-        var style = $(this).val();
-        console.log(style);
-        var pane = $(this).parents(".node").find(".reading");
-        show_style(pane, style);
-      });
+class ReadingEnvironment {
+  rawXml;
+  teiBp;
+  tapasGeneric;
 
-      $('#toggle_word_wrap').on('change', function(){
-        if ($('#toggle_word_wrap').is(':checked')){
-          editor.getSession().setUseWrapMode(false);
-        } else {
-          editor.getSession().setUseWrapMode(true);
-        }
-      });
+  constructor(url, selectionEl, readerNode) {
+    this.url = url
+    this.selectionEl = selectionEl
+    this.readerNode = readerNode
 
-      $('#toggle_invisibles').on('change', function(){
-        if ($('#toggle_invisibles').is(':checked')){
-          editor.setShowInvisibles(false);
-        } else {
-          editor.setShowInvisibles(true);
-        }
-      });
+    this.selectionEl.addEventListener('change', this.updateXml.bind(this))
+
+    this.updateXml()
+  }
+
+  async handleRawXml() {
+    if (!this.rawXml) {
+      const resp = await fetch(this.url)
+      const xml = await resp.text()
+      const pre = document.createElement('pre')
+      pre.innerText = xml;
+      this.rawXml = pre
     }
 
-    function show_style(pane, style){
-      console.log(style);
-      console.log(pane);
-      style_class = "reader_"+style;
-      pane.find('[class^="reader_"]').hide();
-      pane.find("link[id^='reader_css_']").each(function(){
-        $(this).attr('href','');
-      });
-      pane.find("."+style_class).show();
-      // THIS SECTION NEEDS A SERIOUS REFACTOR TO PULL THE CSS FILE LOCATIONS FROM THE API
-      // AND TO GET THE JS FILE FROM THE API AND ADD THEM DYNAMICALLY
-      if (style == 'teibp'){
-        pane.find(".teibp").addClass("default");
-        console.log("going to teibp");
-        $.getScript("/view_packages/teibp/js/teibp.js");
-        pane.find("#reader_css_1").attr("href", "/view_packages/teibp/css/teibp.css");
-        pane.find("#reader_css_2").attr("href", "/view_packages/teibp/css/custom.css");
+    return this.rawXml
+  }
+
+  // [["TAPAS", 'tei2html'], ["Raw XML", 'raw'], ['TEI', 'teibp']]
+  async handleSelection(selection = 'tei2html') {
+    if (selection === 'raw') {
+      return this.handleRawXml()
+    } else if (selection === 'tei2html') {
+      return this.handleTapas()
+    } else if (selection === 'teibp') {
+      return this.handleTeiBoilerplate()
+    } else if (selection === 'hieractivity') {
+      return this.handleHieractivity()
+    }
+  }
+
+  async handleTapas() {
+    // FIXME: (charles) This is a costly call,
+    // but caching the result doesn't work.
+    const doc = await SaxonJS.transform({
+      sourceLocation: this.url,
+      // TODO: (charles) Maybe don't hardcode as many of these locations?
+      stylesheetLocation: '/view_packages/tapas-generic/tei2html.sef.json',
+      stylesheetParams: {
+        // 'Q{}fullHTML': 'true',
+        'Q{}assets-base': '/view_packages/tapas-generic/',
+        tapasHome: window.location,
       }
-      if (style == 'tapas_generic'){
-        console.log("going to tapas G");
-        $.getScript("/view_packages/tapas-generic/js/contextualItems.js");
-        $.getScript("/view_packages/tapas-generic/js/tapas-generic.js");
-        pane.find("#reader_css_1").attr("href", "/view_packages/tapas-generic/css/generic.css");
-        pane.find("#reader_css_2").attr("href", "/view_packages/tapas-generic/css/tapasGdiplo.css");
-        pane.find("#reader_css_3").attr("href", "/view_packages/tapas-generic/css/tapasGnormal.css");
-      }
-      if (style == 'hieractivity'){
-        $.getScript("/view_packages/common/jquery.scrollTo/jquery.scrollTo.min.js");
-        $.getScript("/view_packages/hieractivity/js/hieractivity.js");
-        pane.find("#reader_css_1").attr("href", "/view_packages/hieractivity/css/hieractivity.css");
-      }
-      if (style == 'tei'){
-        $(".reader_tei pre").attr("id", "ace");
-        editor = ace.edit("ace");
-        editor.setTheme("ace/theme/chrome");
-        editor.getSession().setMode("ace/mode/xml");
-        editor.getSession().setUseWrapMode(true);
-        editor.setOptions({
-          minLines: 20,
-          useSoftTabs: true,
-          showInvisibles: true,
-          readOnly: true,
-        });
-        $(".reader_tei").resizable({
-          resize: function( event, ui ) {
-            editor.resize();
-          }
-        });
-      }
+    }, 'async')
+
+    this.tapasGeneric = doc.principalResult
+
+    return this.tapasGeneric
+  }
+
+  async handleTeiBoilerplate() {
+    if (!this.teiBp) {
+      const doc = await SaxonJS.transform({
+        sourceLocation: this.url,
+        stylesheetLocation: '/view_packages/teibp/teibp.sef.json',
+      }, 'async')
+
+      this.teiBp = doc.principalResult
     }
 
-    if ($(".view-compare").length){
-      var left = $(".view-compare .left");
-      var left_nid = left.find("article").attr("id");
-      if (left_nid){
-        left_nid = left_nid.split("-")[1];
-      } else {
-        left_nid = null;
-      }
-      var right = $(".view_compare .right");
-      var right_nid = right.find("article").attr("id");
-      if (right_nid){
-        right_nid = right_nid.split("-")[1];
-      } else {
-        right_nid = null;
-      }
-      left.find(".ctools-jump-menu-select option[value*='"+left_nid+"']").prop('selected', true);
-      right.find(".ctools-jump-menu-select option[value*='"+right_nid+"']").prop('selected', true);
-      $(".ctools-jump-menu-select").on("change", function(e){
-        e.preventDefault();
-        var nid = $(this).val();
-        nid = nid.split("::/");
-        nid = nid[nid.length -1];
-        if ($(this).parents(".left").length){
-          get_reader_view(nid, "left");
-        }
-        if ($(this).parents(".right").length){
-          get_reader_view(nid, "right");
-        }
-      });
-    }
+    return this.teiBp
+  }
 
-    function get_reader_view(nid, side){
-      pathArray = location.href.split( '/' );
-      protocol = pathArray[0];
-      host = pathArray[2];
-      url = protocol + '//' + host;
-      var side = $(".view-compare ."+side);
-      side.append("<span class='fa fa-spinner fa-spin fa-4x'></span>");
-      $.ajax({
-        url: url + '/views/ajax',
-        type: 'post',
-        data: {
-          view_name: 'test_reader_pane',
-          view_display_id: 'block_2', //your display id
-          view_args: nid, // your views arguments
+  async handleHieractivity() {
+    if (!this.hieractivity) {
+      const doc = await SaxonJS.transform({
+        sourceLocation: this.url,
+        stylesheetLocation: '/view_packages/hieractivity/hieractivity.sef.json',
+        stylesheetParams: {
+          '$Q{}language': "en",
         },
-        dataType: 'json',
-        success: function (response) {
-          side.find(".view-test-reader-pane").remove();
-          side.find(".fa-spinner").remove();
-          if (response[1] !== undefined) {
-            side.append(response[1].data);
-            var pane = side.find(".reading");
-            pane.prepend("<link rel='stylesheet' type='text/css' id='reader_css_1'></link><link rel='stylesheet' type='text/css' id='reader_css_2'></link><link rel='stylesheet' type='text/css' id='reader_css_3'></link>");
-            var style = side.find("select[name='reading_selector']").val();
-            make_clickable($("body"));
-            // show_style(pane, style);
-          }
-        }
-      });
+      }, 'async')
+
+      this.hieractivity = doc.principalResult
     }
 
-  });
+    return this.hieractivity
+  }
+
+  async updateXml() {
+    if (this.readerNode.firstChild) {
+      this.readerNode.removeChild(this.readerNode.firstChild)
+    }
+
+    showLoadingSpinner()
+
+    const selectedValue = (this.selectionEl.selectedOptions && this.selectionEl.selectedOptions[0] || {}).value
+    const contents = await this.handleSelection(selectedValue)
+
+    this.updateReadingInterface(contents)
+
+    hideLoadingSpinner()
+  }
+
+  updateReadingInterface(contents) {
+    this.readerNode.appendChild(contents)
+  }
+}
+
+function initializeReadingEnv() {
+  const url = document.getElementById('core-file-url').dataset.url
+  const selectionEl = document.getElementById('reading_selector')
+  const readerNode = document.getElementById('reader-node')
+
+  window.TAPAS_READING_ENVIRONMENT = new ReadingEnvironment(url, selectionEl, readerNode)
+}
+
+(function($) {
+  $(document).ready(initializeReadingEnv);
 })(jQuery);
 
 jQuery.browser = {};

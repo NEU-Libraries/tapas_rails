@@ -1,6 +1,6 @@
 class InstitutionsController < ApplicationController
   extend ActiveSupport::Concern
-  before_filter :verify_admin, :except => [:show, :index]
+  before_action :verify_admin, :except => [:show, :index]
 
   rescue_from ActiveRecord::RecordNotFound do |exception|
     render_404(exception)
@@ -16,8 +16,7 @@ class InstitutionsController < ApplicationController
   def show
     @institution = Institution.find(params[:id])
     @page_title = @institution.name
-    count = ActiveFedora::SolrService.count("institutions_ssim:\"#{@institution.id}\"")
-    @communities = ActiveFedora::SolrService.query("institutions_ssim:\"#{@institution.id}\"", rows: count)
+    @communities = Community.joins(:communities_institutions).where("communities_institutions.institution_id" => @institution.id)
   end
 
   def edit

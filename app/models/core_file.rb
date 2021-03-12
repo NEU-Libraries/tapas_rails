@@ -1,106 +1,46 @@
-class CoreFile < CerberusCore::BaseModels::CoreFile
-  include Did
-  include OGReference
-  include DrupalAccess
-  include TapasQueries
-  include StatusTracking
-  include SolrHelpers
+class CoreFile < ActiveRecord::Base
+  include Discard::Model
   include TapasRails::ViewPackages
 
-  # Configure mods_display gem
-  include ModsDisplay::ModelExtension
-  mods_xml_source do |model|
-    model.mods.content
-  end
+  belongs_to :depositor, class_name: 'User'
 
-  before_save :match_dc_to_mods
+  has_many :core_files_users
+  has_many :authors, -> { where(core_files_users: { user_type: 'author' }) }, through: :core_files_users, class_name: 'User', source: :user
+  has_many :contributors, -> { where(core_files_users: { user_type: 'contributor' }) }, through: :core_files_users, class_name: 'User', source: :user
+  has_many :users, through: :core_files_users
 
-  before_save :ensure_unique_did, :calculate_drupal_access
+  has_and_belongs_to_many :collections
 
-  has_and_belongs_to_many :collections, :property => :is_member_of,
-    :class_name => 'Collection'
+  # ActiveStorage
+  has_many_attached :thumbnails
+  has_one_attached :canonical_object
 
-  has_many :page_images, :property => :is_page_image_for,
-    :class_name => "ImageMasterFile"
-  has_many :tfc, :property => :is_tfc_for, :class_name => "TEIFile"
-  has_many :html_files, :property => :is_html_for, :class_name => "HTMLFile"
-
-  has_and_belongs_to_many :personography_for, :property => :is_personography_for,
-    :class_name => 'Collection'
-  has_and_belongs_to_many :orgography_for, :property => :is_orgography_for,
-    :class_name => 'Collection'
-  has_and_belongs_to_many :bibliography_for, :property => :is_bibliography_for,
-    :class_name => 'Collection'
-  has_and_belongs_to_many :otherography_for, :property => :is_otherography_for,
-    :class_name => 'Collection'
-  has_and_belongs_to_many :odd_file_for, :property => :is_odd_file_for,
-    :class_name => 'Collection'
-  has_and_belongs_to_many :placeography_for, :property => :is_placeography_for,
-    :class_name => 'Collection'
-
-  has_metadata :name => "mods", :type => ModsDatastream
-  has_metadata :name => "properties", :type => PropertiesDatastream
-  has_attributes :title, datastream: "DC"
-  has_attributes :description, datastream: "DC"
-  has_attributes :featured, :datastream => :properties, :multiple => false
-  delegate :authors, to: "mods"
-  delegate :contributors, to: "mods"
-
+  before_update :set_privacy
 
   def self.all_ography_types
-    ['personography', 'orgography', 'bibliography', 'otherography', 'odd_file',
-     'placeography']
+    %w[personography orgography bibliography otherography odd_file placeography]
   end
 
   def self.all_ography_read_methods
     all_ography_types.map { |x| :"#{x}_for" }
   end
 
+  def community
+    # All collections that a CoreFile belongs to will belong to the same community
+    collections.first.community rescue nil
+  end
+
+  def project
+    # Just an alias for #community
+    community
+  end
+
   def clear_ographies!
     CoreFile.all_ography_read_methods.each do |ography_type|
-      self.send(:"#{ography_type}=", [])
-    end
-  end
-
-  def to_solr(solr_doc = Hash.new())
-    solr_doc["active_fedora_model_ssi"] = self.class
-    solr_doc['all_text_timv'] = self.canonical_object.content.content if self.canonical_object
-    solr_doc['type_sim'] = self.is_ography? ? self.ography_type : "Record"
-    solr_doc['collections_ssim'] = self.collections.map{|c| c.title} if !self.collections.blank?
-    solr_doc['collections_pids_ssim'] = self.collections.map{|c| c.pid} if !self.collections.blank?
-    solr_doc['project_ssi'] = self.project.title if !self.project.blank?
-    solr_doc['project_pid_ssi'] = self.project.pid if !self.project.blank?
-    super(solr_doc)
-    return solr_doc
-  end
-
-  def create_view_package_methods
-    array = available_view_packages_machine
-
-    array.each do |method_name|
-      string_name = method_name
-      method_name = method_name.to_sym
-      CoreFile.send :define_method, method_name do |arg = :models|
-        if arg.blank?
-          arg = :models
-        end
-        tg = self.content_objects(:raw).find do |x|
-          x["active_fedora_model_ssi"] == "HTMLFile" &&
-            x["html_type_ssi"] == string_name
-        end
-
-        load_specified_type(tg, arg)
-      end
-    end
-  end
-
-  def self.remove_view_package_methods(view_packages)
-    view_packages.each do |r|
-      if !r.blank?
-        sym = r.to_sym
-        if CoreFile.method_defined? sym
-          CoreFile.send :remove_method, sym
-        end
+      begin
+        self.send(:"#{ography_type}=", [])
+      rescue
+        return nil
       end
     end
   end
@@ -127,15 +67,6 @@ class CoreFile < CerberusCore::BaseModels::CoreFile
     end
   end
 
-  # Return the project that this CoreFile belongs to.  Necessary for easily
-  # finding all of the project level ographies that exist.
-  def project
-    return nil if collections.blank?
-    collection = collections.first
-    return nil if collection.community.blank?
-    return collection.community
-  end
-
   # Check to see if this is an ography-type upload or a tei file type
   # upload
   def file_type
@@ -146,80 +77,93 @@ class CoreFile < CerberusCore::BaseModels::CoreFile
     end
   end
 
-  def as_json
-    if upload_failed?
-      render_failure_json
-    elsif upload_complete?
-      render_success_json
-    elsif upload_in_progress?
-      render_inprogress_json
-    end
-  end
-
   def is_ography?
     CoreFile.all_ography_read_methods.any? do |ography_type|
-      self.send(ography_type).any?
+      send(ography_type).any? rescue return nil
     end
   end
 
   def ography_type
-    type = []
-    CoreFile.all_ography_types.each do |o|
-      if !self.send("#{o}_for").blank?
-        type << o
+    CoreFile.all_ography_types.map do |o|
+      o unless send("#{o}_for").blank?
+    end.compact
+  end
+
+  def create_view_package_methods
+    array = available_view_packages_machine
+
+    array.each do |method_name|
+      string_name = method_name
+      method_name = method_name.to_sym
+      CoreFile.send :define_method, method_name do |arg = :models|
+        if arg.blank?
+          arg = :models
+        end
+
+        tg = self.content_objects(:raw).find do |x|
+          x['active_fedora_model_ssi'] == 'HTMLFile' &&
+            x['html_type_ssi'] == string_name
+        end
+
+        load_specified_type(tg, arg)
       end
     end
-    return type
+  end
+
+  def self.remove_view_package_methods(view_packages)
+    view_packages.each do |r|
+      if !r.blank?
+        sym = r.to_sym
+        if CoreFile.method_defined? sym
+          CoreFile.send :remove_method, sym
+        end
+      end
+    end
   end
 
   def remove_thumbnail
-    self.thumbnail_list = []
-    self.save!
+    update(thumbnails: [])
   end
 
-  private
-
-  def render_failure_json
-    { :status => upload_status,
-      :errors_display => errors_display,
-      :errors_system => errors_system,
-      :stacktrace => stacktrace,
-      :since => upload_status_time
-    }
+  def set_authors(ids)
+    CoreFilesUser.where(user_id: ids).update_all(user_type: 'author')
   end
 
-  def render_inprogress_json
-    { :status => upload_status,
-      :since  => upload_status_time }
+  def set_privacy
+    self.is_public = false unless collections.any?(&:is_public)
   end
 
-
-  def render_success_json
-    tei_name = (canonical_object ? canonical_object.filename : '')
-
-    { :status => upload_status,
-      :since => upload_status_time,
-      :collection_dids => collections.map(&:did),
-      :tei => tei_name,
-      :support_files => page_images.map(&:filename),
-      :depositor => depositor,
-      :access => drupal_access
-    }
-  end
-
-  def calculate_drupal_access
-    if collections.any? { |collection| collection.drupal_access == 'public' }
-      self.drupal_access = 'public'
-    else
-      self.drupal_access = 'private'
-    end
-  end
-
-  def match_dc_to_mods
-    self.DC.title = self.mods.title.first
-    self.DC.description = self.mods.abstract.first if !self.mods.abstract.blank?
-    # self.mods.title = self.DC.title.first
-    # self.mods.abstract = self.DC.description.first
-    #  self.mods.thumbnail = self.DC.thumbnail.first
-  end
+  #############################################################################
+  #
+  # Notes on an ETL integration with eXist
+  #
+  # This area is meant to describe what a basic integration of eXist can look
+  # like using the ExistService at services/exist_service.rb so that the MySQL
+  # database is continually kept in sync with
+  #
+  # The general strategy will be to keep the MySQL data in sync with the eXist
+  # database, using MySQL as the single source of truth (SSOT) for the data
+  # while taking advantage of the extended capabilities of eXist. On the CoreFile
+  # data model, as long as this solution is scalable (i.e. the rate of files
+  # entered into TAPAS doesn't cause latency issues with eXist), the data will
+  # be kept in realtime sync with the eXist database.
+  #
+  # after_create_commit :etl_exist_create
+  # after_update_commit :etl_exist_update
+  # after_delete_commit :etl_exist_delete
+  #
+  # def etl_exist_create
+  #   # Sync creating eXist content
+  #   ExistService.post()
+  # end
+  # def etl_exist_update
+  #   # Sync updating eXist content
+  #   ExistService.post()
+  # end
+  # def etl_exist_delete
+  #   # Sync deleting eXist content
+  #   ExistService.delete()
+  # end
+  #
+  #############################################################################
 end

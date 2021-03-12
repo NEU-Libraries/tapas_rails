@@ -61,9 +61,17 @@ test.txt
 testout.txt
 .idea/*
 
-# Ignore directories which are pulled down from github
-public/view_packages
-public/view_packages/*
-
 log/*-resolrize
 public/uploads/*
+
+# Ignore solr file
+solr/data
+solr/test/data
+solr/development/data
+solr/default/data
+solr/pids
+
+# Ignore migration csv results
+*.csv
+
+spec/failures.txt

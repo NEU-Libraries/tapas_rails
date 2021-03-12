@@ -32,12 +32,12 @@ module TapasRails
         if_properties_exists_strict { self.properties.original_filename.first }
       end
 
-      def thumbnail_list=(array_of_strings)
-        if_properties_exists_strict { self.properties.thumbnail_list = array_of_strings }
+      def thumbnails=(array_of_strings)
+        if_properties_exists_strict { self.properties.thumbnails = array_of_strings }
       end
 
-      def thumbnail_list
-        if_properties_exists_strict { self.properties.thumbnail_list }
+      def thumbnails
+        if_properties_exists_strict { self.properties.thumbnails }
       end
 
       def title=(string)
@@ -204,25 +204,25 @@ module TapasRails
 
     private
 
-      def if_mods_exists(&block)
-        verify_datastream_carefree('mods', CerberusCore::Datastreams::ModsDatastream, &block)
-      end
+      # def if_mods_exists(&block)
+      # verify_datastream_carefree('mods', CerberusCore::Datastreams::ModsDatastream, &block)
+      # end
 
-      def if_mods_exists_strict(&block)
-        verify_datastream_strict('mods', CerberusCore::Datastreams::ModsDatastream, &block)
-      end
+      # def if_mods_exists_strict(&block)
+      # verify_datastream_strict('mods', CerberusCore::Datastreams::ModsDatastream, &block)
+      # end
 
-      def if_DC_exists(&block)
-        verify_datastream_carefree('DC', CerberusCore::Datastreams::DublinCoreDatastream, &block)
-      end
+      # def if_DC_exists(&block)
+      #  verify_datastream_carefree('DC', CerberusCore::Datastreams::DublinCoreDatastream, &block)
+      # end
 
-      def if_DC_exists_strict(&block)
-        verify_datastream_strict('DC', CerberusCore::Datastreams::DublinCoreDatastream, &block)
-      end
+      # def if_DC_exists_strict(&block)
+      #  verify_datastream_strict('DC', CerberusCore::Datastreams::DublinCoreDatastream, &block)
+      # end
 
-      def if_properties_exists_strict(&block)
-        verify_datastream_carefree('properties', PropertiesDatastream, &block)
-      end
+      # def if_properties_exists_strict(&block)
+      # verify_datastream_carefree('properties', PropertiesDatastream, &block)
+      # end
 
       def verify_datastream_carefree(ds_name, ds_class, &action)
         if datastream_exists?(ds_name, ds_class)

@@ -1,23 +1,74 @@
 <% # main container for facets/limits menu -%>
-<% if has_facet_values?  %>
-<div id="facets" class="facets sidenav">
 
-  <div class="top-panel-heading panel-heading">
-    <button type="button" class="facets-toggle" data-toggle="collapse" data-target="#facet-panel-collapse">
+<div id="facets" class="facets sidenav">
+  <div class="top-panel-heading panel-heading" style="display: flex; justify-content: flex-start; align-items: center;">
+    <h4 class='facets-heading'>
+  	  <%= t('blacklight.search.facets.title') %>
+    </h4>
+    <button type="button" class="facets-toggle" data-toggle="collapse" data-target="#facet-panel-collapse" style="border:none; outline:none; margin-left: 0.5rem;">
       <span class="sr-only">Toggle facets</span>
       <span class="icon-bar"></span>
       <span class="icon-bar"></span>
       <span class="icon-bar"></span>
+      <span class="dropdown-toggle"></span>
     </button>
+  </div>
 
-  <h4 class='facets-heading'>
+  <div id="facet-panel-collapse" class="collapse panel-body show">
+    <%= form_tag nil, method: :get do %>
+      <% title_filter = @search.filter(:title) %>
+      <div class="filter">
+        <div class="filter-title">
+          <%= title_filter.name.titlecase %>
+        </div>
+        <div class="filter-values">
+          <%= text_field_tag 'search[title]', title_filter.value, class: 'form-control', placeholder: "My Community"  %>
+        </div>
+      </div>
 
-  	<%= t('blacklight.search.facets.title') %>
-  </h4>
-    </div>
+      <% description_filter = @search.filter(:description) %>
+      <div class="filter">
+        <div class="filter-title">
+          <%= description_filter.name.titlecase %>
+        </div>
+        <div class="filter-values">
+          <%= text_field_tag 'search[description]', description_filter.value, class: 'form-control', placeholder: "This project..." %>
+        </div>
+      </div>
 
-  <div id="facet-panel-collapse" class="collapse panel-group">
-  <%= render_facet_partials %>
+      <% depositor_filter = @search.filter(:depositor) %>
+      <div class="filter">
+        <div class="filter-title">
+          <%= depositor_filter.name.pluralize.titlecase %>
+        </div>
+        <div class="filter-values">
+          <ul class="selected">
+            <% depositor_filter.selected.each do |dep| %>
+              <li><%= link_to dep.email, depositor_filter.remove(dep).path %></li>
+            <% end %>
+          </ul>
+          <ul class="selectable">
+            <% depositor_filter.facet.reject(&:selected).each do |facet| %>
+              <% dep = facet.entity %>
+              <li><%= link_to dep.email, depositor_filter.add(dep).path %></li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+      <div class="dropdown">
+        <button class="btn btn-default dropdown-toggle" type="button" data-toggle="dropdown" id="sort-dropdown-menu-button" aria-haspopup="true" aria-expanded="false">
+          Sort by <%= @search.order.title if @search.order %>
+        </button>
+        <div class="dropdown-menu" aria-labelledby="sort-dropdown-menu-button">
+          <% @search.orders.reject(&:active).each do |order| %>
+            <%= link_to order.title, order.by.path, class: 'dropdown-item' %>
+          <% end %>
+        </div>
+      </div>
+      <br>
+      <%=  submit_tag 'Submit', class: 'btn btn-warning', role: 'button' %>
+      <%=  link_to 'Reset', '?', class: 'btn btn-default', role: 'button' %>
+
+    <% end %>
+  </div>
 </div>
-</div>
-<% end %>

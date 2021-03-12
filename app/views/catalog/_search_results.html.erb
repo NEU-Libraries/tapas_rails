@@ -2,23 +2,34 @@
 
 <% @page_title = t('blacklight.search.page_title.title', :constraints => render_search_to_page_title(params), :application_name => application_name) %>
 
-
-<% content_for(:head) do -%>
-  <%= render_opensearch_response_metadata %>
-  <%= auto_discovery_link_tag(:rss, url_for(params.merge(:format => 'rss')), :title => t('blacklight.search.rss_feed') ) %>
-  <%= auto_discovery_link_tag(:atom, url_for(params.merge(:format => 'atom')), :title => t('blacklight.search.atom_feed') ) %>
-<% end -%>
-
-
 <%= render 'catalog/search_header' %>
 
 <h2 class="sr-only"><%= t('blacklight.search.search_results') %></h2>
-<%- if @response.empty? %>
-  <%= render "zero_results" %>
-<%- elsif render_grouped_response? %>
-  <%= render_grouped_document_index %>
-<%- else %>
-  <%= render_document_index %>
-<%- end %>
 
-<%= render 'catalog/results_pagination' %>
+<table class="table table-striped">
+  <tr>
+    <th>Title</th>
+    <th>Description</th>
+    <th>Depositor</th>
+    <th>Actions</th>
+  </tr>
+  <%- @results.map do |r| %>
+    <tr>
+      <td>
+        <%= link_to r.title, r %>
+      </td>
+      <td>
+        <%= r.description %>
+      </td>
+      <td>
+        <%= r.depositor.nil? ? "No depositor on file" : r.depositor.email %>
+      </td>
+      <td>
+        <%- if can?(:manage, r) %>
+          <%= link_to "Edit", [:edit, r], class: "btn btn-default btn-sm" %>
+          <%= link_to "Delete", r, method: :delete, class: "btn btn-danger btn-sm", data: { confirm: "Are you sure?" } %>
+        <% end %>
+      </td>
+    </tr>
+  <% end %>
+</table>
